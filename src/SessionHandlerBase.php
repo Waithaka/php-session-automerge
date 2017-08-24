@@ -2,6 +2,7 @@
 namespace EduCom\SessionAutomerge;
 
 use SessionHandlerInterface;
+use Exception;
 
 abstract class SessionHandlerBase implements SessionHandlerInterface {
     public $ttl = 3600;
@@ -51,16 +52,30 @@ abstract class SessionHandlerBase implements SessionHandlerInterface {
      */
     public function read($session_id)
     {
-        // Get initial session state as an associative array
-        // Used to run a diff before writing to see what has changed
-        $this->initialState = $this->get($this->getKey($session_id));
+        try {
+            // Get initial session state as an associative array
+            // Used to run a diff before writing to see what has changed
+            $this->initialState = $this->get($this->getKey($session_id));
+        }
+        // Failed while trying to fetch session data
+        catch(Exception $e) {
+            $this->logError("Failed to get initial session  state: ".$e->getMessage());
+
+            // Put session in a readonly state for this request to protect against data corruption
+            $this->readonly = true;
+        }
+
+        // Make sure initial state is an array
+        if(!is_array($this->initialState)) {
+            $this->initialState = array();
+        }
 
         // Return as a session encoded string
         $oldSessionValue = $_SESSION;
         $_SESSION = $this->initialState;
         $encoded = session_encode();
         $_SESSION = $oldSessionValue;
-        return $encoded;
+        return (string) $encoded;
     }
 
     /**
@@ -85,9 +100,28 @@ abstract class SessionHandlerBase implements SessionHandlerInterface {
         $newState = $_SESSION;
         $_SESSION = $oldSessionValue;
 
-        $changes = [];
+        // Something went wrong with the session decode
+        if(!is_array($newState)) {
+            $this->logError("Failed to decode session data: ".$session_data);
+            return false;
+        }
 
-        // TODO: Do a diff of newState vs initialState
+        $changes = array();
+
+        // Keys that were added or changed
+        foreach($newState as $k=>$v) {
+            // Compare the json_encoded values to check if they are identical or not
+            if(!isset($this->initialState[$k]) || json_encode($v) !== json_encode($this->initialState[$k])) {
+                $changes[$k] = $v;
+            }
+        }
+
+        // Keys that were removed
+        foreach($this->initialState as $k=>$v) {
+            if(!isset($newState[$k])) {
+                $changes[$k] = null;
+            }
+        }
 
         // If nothing has changed, bail out immediately
         if(!$changes) {
@@ -95,7 +129,18 @@ abstract class SessionHandlerBase implements SessionHandlerInterface {
         }
 
         // Fetch the latest session state again
-        $externalState = $this->get($key);
+        try {
+            $externalState = $this->get($key);
+
+            if(!is_array($externalState)) {
+                throw new Exception("Failed to get external session");
+            }
+        }
+        // Error while fetching external session data
+        catch(Exception $e) {
+            // Fall back to using the initial state
+            $externalState = $this->initialState;
+        }
 
         // Apply each change to the external session state
         // Choose proper automatic resolution rule for any conflicts
@@ -109,7 +154,15 @@ abstract class SessionHandlerBase implements SessionHandlerInterface {
             }
             // Conflicting external change, try to resolve
             else {
-                $externalState[$k] = $this->resolveConflict($k, $initial, $change, $external);
+                try {
+                    $externalState[$k] = $this->resolveConflict($k, $initial, $change, $external);
+                }
+                catch(Exception $e) {
+                    $this->logError('Error resolving session conflict for `'.$k.'``: '.$e->getMessage());
+
+                    // Fall back to using the new value
+                    $externalState[$k] = $change;
+                }
             }
 
             if($externalState[$k] === null) {
@@ -117,8 +170,14 @@ abstract class SessionHandlerBase implements SessionHandlerInterface {
             }
         }
 
-        // TODO: catch exceptions
-        $this->set($key, $externalState);
+        try {
+            $this->set($key, $externalState);
+        }
+        catch(Exception $e) {
+            $this->logError('Error saving session: '.$e->getMessage());
+            return false;
+        }
+
         return true;
     }
 
@@ -160,6 +219,15 @@ abstract class SessionHandlerBase implements SessionHandlerInterface {
     }
 
     /**
+     * Override this method to hook into your application's error logging code
+     * All errors are handled gracefully to protect against data corruption
+     * @param string $msg The error message
+     */
+    public function logError($msg) {
+        trigger_error($msg);
+    }
+
+    /**
      * Resolve data conflicts.
      * Can override in child classes and add custom application-specific logic.
      * @param string $key The session key with a conflict
@@ -176,6 +244,7 @@ abstract class SessionHandlerBase implements SessionHandlerInterface {
     /**
      * Get session data from the storage mechanism
      * @param string $key
+     * @throws Exception on failure
      * @return array The session data as an associative array
      */
     abstract function get($key);
@@ -184,6 +253,7 @@ abstract class SessionHandlerBase implements SessionHandlerInterface {
      * Store session data in the storage mechanism
      * @param string $key
      * @param array $session_data The session data to store (associative array)
+     * @throws Exception on failure
      * @return bool true on success
      */
     abstract function set($key, array $session_data);
@@ -191,6 +261,7 @@ abstract class SessionHandlerBase implements SessionHandlerInterface {
     /**
      * Delete a session
      * @param string $key
+     * @throws Exception on failure
      * @return bool true on success
      */
     abstract function delete($key);

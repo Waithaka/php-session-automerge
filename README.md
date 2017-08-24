@@ -41,7 +41,9 @@ $handler->ttl = 7200;
 
 Step 3: Set the session handler
 ```php
-session_set_save_handler($handler);
+// 2nd parameter `true` means the session will auto-close 
+// at the end of the request if `session_close()` was not explicitly called
+session_set_save_handler($handler, true);
 ```
 
 
@@ -161,3 +163,14 @@ class FileSessionHandler extends SessionHandlerBase {
 ```
 
 Most storage mechanisms won't need this, but you can define a `gc` (garbage collection), `open`, or `close` method as well.  These follow the same pattern as `SessionHandlerInterface`.
+
+Logging Errors
+---------------------------
+Occasionally errors will happen (e.g. Memcached request fails due to network glitch).
+
+All errors are handled gracefully to avoid data corruption.  
+
+In the case of an error, the `errorLog` method will be called. By default it will just a `trigger_error` call.
+
+You can override the `errorLog` method in a child class if needed (e.g. to tie into your application's monolog instance).
+
