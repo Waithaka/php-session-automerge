@@ -1,0 +1,23 @@
+{
+  "name": "edu-com/session-automerge",
+  "type": "library",
+  "description": "Session Auto-Merge Handler - fast sessions (no locking) with strong data consistency (configurable conflict resolution).",
+  "keywords": ["php", "mysql", "sessions"],
+  "homepage": "https://github.com/edu-com/php-session-automerge",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Jeremy Dorn",
+      "email": "jeremy@education.com",
+      "homepage": "https://github.com/jdorn"
+    }
+  ],
+  "require": {
+    "php": ">=5.4.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "EduCom\\SessionAutomerge\\": "src/"
+    }
+  }
+}
