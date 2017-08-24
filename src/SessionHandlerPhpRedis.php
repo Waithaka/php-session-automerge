@@ -3,7 +3,7 @@ namespace EduCom\SessionAutomerge;
 
 use Redis;
 
-class SessionhandlerRedis extends SessionHandlerBase {
+class SessionhandlerPhpRedis extends SessionHandlerBase {
     /** @var  Redis */
     protected $instance;
 
@@ -13,12 +13,12 @@ class SessionhandlerRedis extends SessionHandlerBase {
 
     public function get($key) {
         $raw = $this->instance->get($key);
-        $data = $this->instance->_unserialize($raw);
+        $data = $this->unserialize($raw);
         return $data;
     }
 
     public function set($key, array $session_data) {
-        $serialized = $this->instance->_serialize($session_data);
+        $serialized = $this->serialize($session_data);
         $this->instance->set($key, $serialized, $this->ttl);
         return true;
     }

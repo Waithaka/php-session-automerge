@@ -1,13 +1,13 @@
 <?php
 namespace EduCom\SessionAutomerge;
 
-use Memcached;
+use \Predis\Client;
 
-class SessionhandlerMemcached extends SessionHandlerBase {
-    /** @var  Memcached */
+class SessionhandlerPRedis extends SessionHandlerBase {
+    /** @var  \Predis\Client */
     protected $instance;
 
-    public function __construct(Memcached $instance) {
+    public function __construct(Client $instance) {
         $this->instance = $instance;
     }
 
@@ -19,12 +19,13 @@ class SessionhandlerMemcached extends SessionHandlerBase {
 
     public function set($key, array $session_data) {
         $serialized = $this->serialize($session_data);
-        $this->instance->set($key, $serialized, $this->ttl);
+        $this->instance->set($key, $serialized);
+        $this->instance->expire($key, $this->ttl);
         return true;
     }
 
     public function delete($key) {
-        $this->instance->delete($key);
+        $this->instance->del($key);
         return true;
     }
 }

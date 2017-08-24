@@ -8,23 +8,44 @@ PHP Session Handler with Auto-Merge
 
 Basic Usage
 --------------------------
+This library comes with session handlers for Memcached and Redis (both the PhpRedis extension and the PRedis library).
+
+Step 1: Get a handler instanace.  This part depends on what storage back-end you want to use.
 ```php
 <?php
 use EduCom\SessionAutomerge\SessionhandlerMemcached;
+use EduCom\SessionAutomerge\SessionhandlerPhpRedis;
+use EduCom\SessionAutomerge\SessionhandlerPRedis;
 
+// Memcached
 $memcached = new Memcached;
 $memcached->addServer('localhost', 11211);
-
 $handler = new SessionhandlerMemcached($memcached);
 
-// Specify options if needed
-$handler->ttl = 7200; // Cache for 2 hours (default is 1 hour)
+// PhpRedis
+$redis = new Redis();
+$redis->connect('127.0.0.1', 6379);
+$handler = new SessionhandlerPhpRedis($redis);
 
-// Set the save handler
+// PRedis
+$client = new Predis\Client('tcp://10.0.0.1:6379');
+$handler = new SessionhandlerPRedis($client);
+```
+
+Step 2: Set options if needed
+```php
+// All options are public properties and have sensible defaults
+// You can override any of them easily if desired.
+$handler->ttl = 7200;
+```
+
+Step 3: Set the session handler
+```php
 session_set_save_handler($handler);
 ```
 
-#### Optional Settings
+
+#### Options
 
 *  `ttl` - Number of seconds to keep a session active. Defaults to 3600 (1 hour)
 *  `prefix` - A prefix to add to all session ids. Defaults to `session_`
@@ -42,16 +63,36 @@ Enable the following `php.ini` settings for more security:
 
 Do not store objects in the session. Stick to primitive data types. This will reduce chances of future bugs and make your sessions portable
 
-Extending and Adding Conflict Resolution
+Changing the Serialization Method
+--------------------------------
+By default, data is run through `serialize` before being passed to the storage backend.
+
+If you extend a handler class, it's easy to customize the serialization behavior.
+
+```php
+<?php
+use EduCom\SessionAutomerge\SessionHandlerMemcached;
+
+class MySessionHandler extends SessionHandlerMemcached {
+    public function serialize(array $data) {
+        return json_encode($data);
+    }
+    public function unserialize($string) {
+        return json_decode($string, true);
+    }
+}
+```
+
+Conflict Resolution
 -----------------------------------------
-It's easy to extend one of the session handler classes and add your own custom conflict resoltuion code:
+By default, if a merge conflict is encountered when saving the session, the latest value always takes precedence.
 
-*  `$key` is the array key in  `$_SESSION` that has a conflict
-*  `$initial` was the intial value of the key at the start of the current request
-*  `$new` is the new value of the key at the end of the current request
-*  `$external` is the latest value of the key from the database (set in a different request)
+You can change this behavior and provide custom merge logic by extending a handler class `resolveConflict` method.  The method takes the following arguments:
 
-A value of `null` means it does not exist (e.g. if `$external` is null, the value was deleted in an external request).
+*  `$key` is the array key in `$_SESSION` that has a conflict
+*  `$initial` was the intial value of the key at the start of the current request.  `null` means the key did not exist.
+*  `$new` is the new value of the key at the end of the current request.  `null` means the key was deleted.
+*  `$external` is the latest value of the key from the database (set in a different request). `null` means the key was deleted.
 
 ```php
 <?php
@@ -79,7 +120,11 @@ class MySessionHandler extends SessionHandlerMemcached {
 Adding New Storage Mechanism
 ----------------------------
 
-If you want to use something other than Redis or Memcached, it's easy to extend the base class.
+If you want to use something other than Redis or Memcached, it's easy to extend the `SessionHandlerBase` class.
+
+At a minimum, you need to define the abstract methods `set`, `get`, and `delete`. 
+
+If you need configuration parameters (e.g. database client, file path, etc.) you can create a `__construct` method.
 
 Here's a fully working example of storing sessions in the filesystem.
 
@@ -87,7 +132,6 @@ Here's a fully working example of storing sessions in the filesystem.
 <?php
 use EduCom\SessionAutomerge\SessionHandlerBase;
 
-// TODO: support ttl
 class FileSessionHandler extends SessionHandlerBase {
     public $path = '/tmp/';
     
@@ -96,14 +140,24 @@ class FileSessionHandler extends SessionHandlerBase {
     }
     
     public function set($key, array $session_data) {
-        file_put_contents($this->path.$key, serialize($session_data));
+        // TODO: support ttl
+        $ttl = $this->ttl;
+        
+        $serialized = $this->serialize($session_data);
+        file_put_contents($this->path.$key, $serialized);
+        return true;
     }
+    
     public function get($key) {
         $raw = file_get_contents($this->path.$key);
-        return unserialize($raw);
+        return $this->unserialize($raw);
     }
+
     public function delete($key) {
         unlink($this->path.$key);
+        return true;
     }
 }
 ```
+
+Most storage mechanisms won't need this, but you can define a `gc` (garbage collection), `open`, or `close` method as well.  These follow the same pattern as `SessionHandlerInterface`.

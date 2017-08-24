@@ -131,6 +131,24 @@ abstract class SessionHandlerBase implements SessionHandlerInterface {
     }
 
     /**
+     * Override in child classes to change the serialization behavior
+     * @param array $data The session data associative array
+     * @return string The serialized string
+     */
+    protected function serialize(array $data) {
+        return serialize($data);
+    }
+
+    /**
+     * Override in  child classes to change the unserialization behavior
+     * @param string $string The serialized string
+     * @return array The session data associative array
+     */
+    protected function unserialize($string) {
+        return unserialize($string);
+    }
+
+    /**
      * Destroy a session. Should not need to implement in child classes.
      * Implement the abstract `delete` method instead.
      * @param string $session_id
